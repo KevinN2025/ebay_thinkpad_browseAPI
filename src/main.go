@@ -1,0 +1,427 @@
+package main
+
+import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+type config struct {
+	AccessToken   string
+	ClientID      string
+	ClientSecret  string
+	Environment   string
+	MarketplaceID string
+}
+
+type tokenResponse struct {
+	AccessToken string `json:"access_token"`
+	TokenType   string `json:"token_type"`
+	ExpiresIn   int    `json:"expires_in"`
+}
+
+type searchResponse struct {
+	Total         int           `json:"total"`
+	ItemSummaries []itemSummary `json:"itemSummaries"`
+}
+
+type itemSummary struct {
+	Title      string      `json:"title"`
+	ItemID     string      `json:"itemId"`
+	ItemWebURL string      `json:"itemWebUrl"`
+	Condition  string      `json:"condition"`
+	Price      moneyValue  `json:"price"`
+	Seller     sellerBrief `json:"seller"`
+}
+
+type sellerBrief struct {
+	Username string `json:"username"`
+}
+
+type moneyValue struct {
+	Value    string `json:"value"`
+	Currency string `json:"currency"`
+}
+
+func main() {
+	query := flag.String("query", "", "Search keywords, for example: -query \"thinkpad t14\"")
+	limit := flag.Int("limit", 10, "Number of items to return")
+	offset := flag.Int("offset", 0, "Result offset")
+	envPath := flag.String("env-file", ".env", "Path to the env file")
+	flag.Parse()
+
+	if strings.TrimSpace(*query) == "" {
+		exitf("missing required -query argument")
+	}
+
+	cfg, err := loadConfig(*envPath)
+	if err != nil {
+		exitf("config error: %v", err)
+	}
+
+	client := newEbayClient(cfg)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	token := cfg.AccessToken
+	if token == "" {
+		token, err = client.fetchAccessToken(ctx)
+		if err != nil {
+			exitf("token error: %v", err)
+		}
+	}
+
+	resp, err := client.searchTitleContains(ctx, token, *query, *limit, *offset)
+	if err != nil {
+		exitf("search error: %v", err)
+	}
+
+	fmt.Printf("Found %d items\n\n", resp.Total)
+	for i, item := range resp.ItemSummaries {
+		fmt.Printf("%d. %s\n", i+1+*offset, item.Title)
+		if item.Price.Value != "" {
+			fmt.Printf("   Price: %s %s\n", item.Price.Value, item.Price.Currency)
+		}
+		if item.Condition != "" {
+			fmt.Printf("   Condition: %s\n", item.Condition)
+		}
+		if item.Seller.Username != "" {
+			fmt.Printf("   Seller: %s\n", item.Seller.Username)
+		}
+		if item.ItemWebURL != "" {
+			fmt.Printf("   URL: %s\n", item.ItemWebURL)
+		}
+		if item.ItemID != "" {
+			fmt.Printf("   Item ID: %s\n", item.ItemID)
+		}
+		fmt.Println()
+	}
+}
+
+func loadConfig(envPath string) (config, error) {
+	cfg := config{
+		AccessToken:   strings.TrimSpace(os.Getenv("EBAY_ACCESS_TOKEN")),
+		ClientID:      strings.TrimSpace(os.Getenv("EBAY_CLIENT_ID")),
+		ClientSecret:  strings.TrimSpace(os.Getenv("EBAY_CLIENT_SECRET")),
+		Environment:   strings.TrimSpace(os.Getenv("EBAY_ENV")),
+		MarketplaceID: strings.TrimSpace(os.Getenv("EBAY_MARKETPLACE_ID")),
+	}
+
+	if cfg.AccessToken == "" || cfg.ClientID == "" || cfg.ClientSecret == "" || cfg.Environment == "" || cfg.MarketplaceID == "" {
+		fileCfg, err := loadDotEnvFile(envPath)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return config{}, err
+		}
+		if cfg.AccessToken == "" {
+			cfg.AccessToken = fileCfg.AccessToken
+		}
+		if cfg.ClientID == "" {
+			cfg.ClientID = fileCfg.ClientID
+		}
+		if cfg.ClientSecret == "" {
+			cfg.ClientSecret = fileCfg.ClientSecret
+		}
+		if cfg.Environment == "" {
+			cfg.Environment = fileCfg.Environment
+		}
+		if cfg.MarketplaceID == "" {
+			cfg.MarketplaceID = fileCfg.MarketplaceID
+		}
+	}
+
+	if cfg.Environment == "" {
+		cfg.Environment = "sandbox"
+	}
+	if cfg.MarketplaceID == "" {
+		cfg.MarketplaceID = "EBAY_US"
+	}
+
+	if cfg.AccessToken == "" {
+		if cfg.ClientID == "" {
+			return config{}, errors.New("missing EBAY_CLIENT_ID")
+		}
+		if cfg.ClientSecret == "" {
+			return config{}, errors.New("missing EBAY_CLIENT_SECRET")
+		}
+	}
+
+	cfg.Environment = strings.ToLower(cfg.Environment)
+	if cfg.Environment != "sandbox" && cfg.Environment != "production" {
+		return config{}, fmt.Errorf("EBAY_ENV must be sandbox or production, got %q", cfg.Environment)
+	}
+
+	return cfg, nil
+}
+
+func loadDotEnvFile(path string) (config, error) {
+	data, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
+		return config{}, err
+	}
+
+	lines := strings.Split(string(data), "\n")
+	values := map[string]string{}
+	for _, raw := range lines {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if key, value, ok := strings.Cut(line, "="); ok {
+			values[strings.TrimSpace(key)] = strings.Trim(strings.TrimSpace(value), `"'`)
+		}
+	}
+
+	cfg := config{
+		AccessToken:   values["EBAY_ACCESS_TOKEN"],
+		ClientID:      values["EBAY_CLIENT_ID"],
+		ClientSecret:  values["EBAY_CLIENT_SECRET"],
+		Environment:   values["EBAY_ENV"],
+		MarketplaceID: values["EBAY_MARKETPLACE_ID"],
+	}
+	if cfg.AccessToken != "" || cfg.ClientID != "" || cfg.ClientSecret != "" {
+		return cfg, nil
+	}
+
+	lookup := map[string]string{
+		"App ID (Client ID)":      "client_id",
+		"Cert ID (Client Secret)": "client_secret",
+		"Dev ID":                  "dev_id",
+	}
+
+	legacy := map[string]string{}
+	for i := 0; i < len(lines); i++ {
+		label := strings.TrimSpace(lines[i])
+		key, ok := lookup[label]
+		if !ok {
+			continue
+		}
+		if i+1 >= len(lines) {
+			continue
+		}
+		value := strings.TrimSpace(lines[i+1])
+		if value == "" {
+			continue
+		}
+		legacy[key] = value
+		i++
+	}
+
+	return config{
+		ClientID:      legacy["client_id"],
+		ClientSecret:  legacy["client_secret"],
+		Environment:   "sandbox",
+		MarketplaceID: "EBAY_US",
+	}, nil
+}
+
+type ebayClient struct {
+	httpClient *http.Client
+	baseURL    string
+	tokenURL   string
+	cfg        config
+}
+
+func newEbayClient(cfg config) ebayClient {
+	host := "https://api.ebay.com"
+	if cfg.Environment == "sandbox" {
+		host = "https://api.sandbox.ebay.com"
+	}
+
+	return ebayClient{
+		httpClient: &http.Client{Timeout: 20 * time.Second},
+		baseURL:    host + "/buy/browse/v1",
+		tokenURL:   host + "/identity/v1/oauth2/token",
+		cfg:        cfg,
+	}
+}
+
+func (c ebayClient) fetchAccessToken(ctx context.Context) (string, error) {
+	form := url.Values{}
+	form.Set("grant_type", "client_credentials")
+	form.Set("scope", "https://api.ebay.com/oauth/api_scope")
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.tokenURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", err
+	}
+
+	creds := c.cfg.ClientID + ":" + c.cfg.ClientSecret
+	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(creds)))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("status %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+
+	var token tokenResponse
+	if err := json.Unmarshal(body, &token); err != nil {
+		return "", err
+	}
+	if token.AccessToken == "" {
+		return "", errors.New("empty access token in response")
+	}
+	return token.AccessToken, nil
+}
+
+func (c ebayClient) search(ctx context.Context, token, query string, limit, offset int) (searchResponse, error) {
+	var result searchResponse
+
+	u, err := url.Parse(c.baseURL + "/item_summary/search")
+	if err != nil {
+		return result, err
+	}
+
+	params := u.Query()
+	params.Set("q", query)
+	params.Set("limit", fmt.Sprintf("%d", limit))
+	params.Set("offset", fmt.Sprintf("%d", offset))
+	u.RawQuery = params.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return result, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-EBAY-C-MARKETPLACE-ID", c.cfg.MarketplaceID)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return result, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return result, err
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return result, fmt.Errorf("status %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+
+	if err := json.Unmarshal(body, &result); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (c ebayClient) searchTitleContains(ctx context.Context, token, query string, limit, offset int) (searchResponse, error) {
+	terms := splitQueryTerms(query)
+	if len(terms) == 0 {
+		return searchResponse{}, nil
+	}
+
+	apiLimit := limit
+	if apiLimit < 50 {
+		apiLimit = 50
+	}
+	if apiLimit > 200 {
+		apiLimit = 200
+	}
+
+	apiOffset := 0
+	matches := make([]itemSummary, 0, limit+offset)
+	lastTotal := 0
+
+	for {
+		resp, err := c.search(ctx, token, buildBroadQuery(terms), apiLimit, apiOffset)
+		if err != nil {
+			return searchResponse{}, err
+		}
+		lastTotal = resp.Total
+		if len(resp.ItemSummaries) == 0 {
+			break
+		}
+
+		matches = append(matches, filterItemsByTitleContainsAll(resp.ItemSummaries, terms)...)
+		if len(matches) >= offset+limit {
+			break
+		}
+
+		apiOffset += len(resp.ItemSummaries)
+		if apiOffset >= resp.Total || apiOffset >= 10000 {
+			break
+		}
+	}
+
+	start := offset
+	if start > len(matches) {
+		start = len(matches)
+	}
+
+	end := start + limit
+	if end > len(matches) {
+		end = len(matches)
+	}
+
+	return searchResponse{
+		Total:         min(lastTotal, len(matches)),
+		ItemSummaries: matches[start:end],
+	}, nil
+}
+
+func splitQueryTerms(query string) []string {
+	return strings.Fields(strings.ToLower(strings.TrimSpace(query)))
+}
+
+func buildBroadQuery(terms []string) string {
+	if len(terms) <= 1 {
+		return strings.Join(terms, " ")
+	}
+	return "(" + strings.Join(terms, ", ") + ")"
+}
+
+func filterItemsByTitleContainsAll(items []itemSummary, terms []string) []itemSummary {
+	filtered := make([]itemSummary, 0, len(items))
+	for _, item := range items {
+		if titleContainsAllTerms(item.Title, terms) {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
+}
+
+func titleContainsAllTerms(title string, terms []string) bool {
+	normalizedTitle := strings.ToLower(title)
+	for _, term := range terms {
+		if !strings.Contains(normalizedTitle, term) {
+			return false
+		}
+	}
+	return true
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func exitf(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, format+"\n", args...)
+	os.Exit(1)
+}
