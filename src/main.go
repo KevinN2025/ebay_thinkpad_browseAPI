@@ -53,8 +53,30 @@ type moneyValue struct {
 	Currency string `json:"currency"`
 }
 
+type tokenFetcher func(context.Context) (tokenResponse, error)
+
+type authSession struct {
+	cfg         config
+	fetchToken  tokenFetcher
+	accessToken string
+	expiresAt   time.Time
+}
+
+var defaultExcludedTitleTerms = []string{
+	"ultrabase",
+	"charger",
+	"adapter",
+	"ac adapter",
+	"power adapter",
+	"power supply",
+	"dock",
+	"docking station",
+	"port replicator",
+}
+
 func main() {
 	query := flag.String("query", "", "Search keywords, for example: -query \"thinkpad t14\"")
+	exclude := flag.String("exclude", "", "Exclude listings whose titles contain these words in addition to the built-in accessory filters, for example: -exclude \"battery cracked\"")
 	limit := flag.Int("limit", 10, "Number of items to return")
 	offset := flag.Int("offset", 0, "Result offset")
 	envPath := flag.String("env-file", ".env", "Path to the env file")
@@ -73,15 +95,13 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	token := cfg.AccessToken
-	if token == "" {
-		token, err = client.fetchAccessToken(ctx)
-		if err != nil {
-			exitf("token error: %v", err)
-		}
+	session := newAuthSession(cfg, client.fetchAccessToken)
+	token, err := session.token(ctx)
+	if err != nil {
+		exitf("token error: %v", err)
 	}
 
-	resp, err := client.searchTitleContains(ctx, token, *query, *limit, *offset)
+	resp, err := client.searchTitleContains(ctx, token, *query, *exclude, *limit, *offset)
 	if err != nil {
 		exitf("search error: %v", err)
 	}
@@ -245,14 +265,58 @@ func newEbayClient(cfg config) ebayClient {
 	}
 }
 
-func (c ebayClient) fetchAccessToken(ctx context.Context) (string, error) {
+func newAuthSession(cfg config, fetch tokenFetcher) authSession {
+	return authSession{
+		cfg:         cfg,
+		fetchToken:  fetch,
+		accessToken: cfg.AccessToken,
+	}
+}
+
+func (a *authSession) token(ctx context.Context) (string, error) {
+	if !a.canRefresh() {
+		if a.accessToken == "" {
+			return "", errors.New("missing EBAY_ACCESS_TOKEN")
+		}
+		return a.accessToken, nil
+	}
+
+	if a.accessToken != "" && time.Now().Before(a.expiresAt) {
+		return a.accessToken, nil
+	}
+
+	resp, err := a.fetchToken(ctx)
+	if err != nil {
+		if a.accessToken != "" {
+			return a.accessToken, nil
+		}
+		return "", err
+	}
+
+	a.accessToken = resp.AccessToken
+	a.expiresAt = tokenExpiryDeadline(resp.ExpiresIn)
+	return a.accessToken, nil
+}
+
+func (a authSession) canRefresh() bool {
+	return a.cfg.ClientID != "" && a.cfg.ClientSecret != ""
+}
+
+func tokenExpiryDeadline(expiresIn int) time.Time {
+	if expiresIn <= 120 {
+		return time.Now()
+	}
+	return time.Now().Add(time.Duration(expiresIn-60) * time.Second)
+}
+
+func (c ebayClient) fetchAccessToken(ctx context.Context) (tokenResponse, error) {
 	form := url.Values{}
 	form.Set("grant_type", "client_credentials")
 	form.Set("scope", "https://api.ebay.com/oauth/api_scope")
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.tokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
-		return "", err
+		return tokenResponse{}, err
 	}
 
 	creds := c.cfg.ClientID + ":" + c.cfg.ClientSecret
@@ -261,27 +325,27 @@ func (c ebayClient) fetchAccessToken(ctx context.Context) (string, error) {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return "", err
+		return tokenResponse{}, err
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", err
+		return tokenResponse{}, err
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("status %s: %s", resp.Status, strings.TrimSpace(string(body)))
+		return tokenResponse{}, fmt.Errorf("status %s: %s", resp.Status, strings.TrimSpace(string(body)))
 	}
 
 	var token tokenResponse
 	if err := json.Unmarshal(body, &token); err != nil {
-		return "", err
+		return tokenResponse{}, err
 	}
 	if token.AccessToken == "" {
-		return "", errors.New("empty access token in response")
+		return tokenResponse{}, errors.New("empty access token in response")
 	}
-	return token.AccessToken, nil
+	return token, nil
 }
 
 func (c ebayClient) search(ctx context.Context, token, query string, limit, offset int) (searchResponse, error) {
@@ -328,8 +392,9 @@ func (c ebayClient) search(ctx context.Context, token, query string, limit, offs
 	return result, nil
 }
 
-func (c ebayClient) searchTitleContains(ctx context.Context, token, query string, limit, offset int) (searchResponse, error) {
+func (c ebayClient) searchTitleContains(ctx context.Context, token, query, exclude string, limit, offset int) (searchResponse, error) {
 	terms := splitQueryTerms(query)
+	excludedTerms := combineExcludedTerms(exclude)
 	if len(terms) == 0 {
 		return searchResponse{}, nil
 	}
@@ -356,7 +421,7 @@ func (c ebayClient) searchTitleContains(ctx context.Context, token, query string
 			break
 		}
 
-		matches = append(matches, filterItemsByTitleContainsAll(resp.ItemSummaries, terms)...)
+		matches = append(matches, filterItems(resp.ItemSummaries, terms, excludedTerms)...)
 		if len(matches) >= offset+limit {
 			break
 		}
@@ -387,6 +452,13 @@ func splitQueryTerms(query string) []string {
 	return strings.Fields(strings.ToLower(strings.TrimSpace(query)))
 }
 
+func combineExcludedTerms(exclude string) []string {
+	terms := make([]string, 0, len(defaultExcludedTitleTerms)+len(strings.Fields(exclude)))
+	terms = append(terms, defaultExcludedTitleTerms...)
+	terms = append(terms, splitQueryTerms(exclude)...)
+	return terms
+}
+
 func buildBroadQuery(terms []string) string {
 	if len(terms) <= 1 {
 		return strings.Join(terms, " ")
@@ -394,12 +466,16 @@ func buildBroadQuery(terms []string) string {
 	return "(" + strings.Join(terms, ", ") + ")"
 }
 
-func filterItemsByTitleContainsAll(items []itemSummary, terms []string) []itemSummary {
+func filterItems(items []itemSummary, requiredTerms, excludedTerms []string) []itemSummary {
 	filtered := make([]itemSummary, 0, len(items))
 	for _, item := range items {
-		if titleContainsAllTerms(item.Title, terms) {
-			filtered = append(filtered, item)
+		if !titleContainsAllTerms(item.Title, requiredTerms) {
+			continue
 		}
+		if titleContainsAnyTerm(item.Title, excludedTerms) {
+			continue
+		}
+		filtered = append(filtered, item)
 	}
 	return filtered
 }
@@ -412,6 +488,16 @@ func titleContainsAllTerms(title string, terms []string) bool {
 		}
 	}
 	return true
+}
+
+func titleContainsAnyTerm(title string, terms []string) bool {
+	normalizedTitle := strings.ToLower(title)
+	for _, term := range terms {
+		if strings.Contains(normalizedTitle, term) {
+			return true
+		}
+	}
+	return false
 }
 
 func min(a, b int) int {
