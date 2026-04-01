@@ -86,7 +86,7 @@ The alert UI:
 
 The PHP backend auto-creates its tables inside the configured database on first run.
 
-Legacy Go alert UI:
+ Go alert UI:
 
 ```bash
 go run ./src/alert -interval 5m
