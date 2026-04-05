@@ -4,22 +4,16 @@ declare(strict_types=1);
 
 final class AlertBackend
 {
-    private const TRACKED_MODELS = [
-        'P14s thinkpad',
-        'T490 thinkpad',
-        'T490s thinkpad',
-        'X200 thinkpad',
-        'X13 thinkpad',
-        'X1 carbon thinkpad',
-        'T400 thinkpad',
-        'T14 thinkpad',
-        'T14s thinkpad',
-        'W520 thinkpad',
-        'T430 thinkpad',
-        'T480s thinkpad',
-        'X220 thinkpad',
+    private const DEFAULT_TRACKED_MODELS = [
         'X230 thinkpad',
-        'T480 thinkpad',
+        'T400 thinkpad',
+        'X200 thinkpad',
+        'T500 thinkpad',
+        'W500 thinkpad',
+        'T410 thinkpad',
+        'T61 thinkpad',
+        'W520 thinkpad',
+        'X201 thinkpad',
     ];
 
     private const EXCLUDED_TITLE_TERMS = [
@@ -54,12 +48,6 @@ final class AlertBackend
         'replacement',
         'lcd assembly',
         'screen assembly',
-        'battery',
-        'memory',
-        'ram',
-        'ddr',
-        'ssd',
-        'hdd',
         'hard drive',
         'stylus',
         'digitizer',
@@ -90,12 +78,9 @@ final class AlertBackend
         'bios chip',
         'compatible',
         'camera set',
-        'camera',
         'wwan',
         'wireless',
-        'wifi',
         'bluetooth',
-        'module',
         'dock model',
         'docking',
         'socket fit',
@@ -113,6 +98,7 @@ final class AlertBackend
 
     private string $rootPath;
     private array $config;
+    private array $trackedModels;
     private \PDO $pdo;
     private ?string $accessToken = null;
     private ?\DateTimeImmutable $tokenExpiresAt = null;
@@ -121,6 +107,7 @@ final class AlertBackend
     {
         $this->rootPath = rtrim($rootPath, '/');
         $this->config = $this->loadConfig();
+        $this->trackedModels = $this->trackedModelsFromConfig($this->config);
         $this->pdo = $this->connectDatabase();
         $this->ensureSchema();
     }
@@ -193,6 +180,8 @@ final class AlertBackend
             'alert_limit' => max(1, (int) $this->envValue('ALERT_LIMIT', $fileValues['ALERT_LIMIT'] ?? '25')),
             'alert_existing' => $this->toBool($this->envValue('ALERT_EXISTING', $fileValues['ALERT_EXISTING'] ?? 'false')),
             'dashboard_limit' => max(1, (int) $this->envValue('DASHBOARD_ALERT_LIMIT', $fileValues['DASHBOARD_ALERT_LIMIT'] ?? '150')),
+            'tracked_models' => $this->envValue('TRACKED_MODELS', $fileValues['TRACKED_MODELS'] ?? ''),
+            'max_search_results_per_model' => max(1, min(10000, (int) $this->envValue('ALERT_MAX_RESULTS_PER_MODEL', $fileValues['ALERT_MAX_RESULTS_PER_MODEL'] ?? '250'))),
         ];
 
         if ($config['db_user'] === '') {
@@ -223,6 +212,27 @@ final class AlertBackend
     private function toBool(string $value): bool
     {
         return in_array(strtolower(trim($value)), ['1', 'true', 'yes', 'on'], true);
+    }
+
+    private function trackedModelsFromConfig(array $config): array
+    {
+        $raw = trim((string) ($config['tracked_models'] ?? ''));
+        if ($raw === '') {
+            return self::DEFAULT_TRACKED_MODELS;
+        }
+
+        $parts = preg_split('/[\r\n,]+/', $raw) ?: [];
+        $models = [];
+        foreach ($parts as $part) {
+            $model = trim($part);
+            if ($model === '') {
+                continue;
+            }
+
+            $models[strtolower($model)] = $model;
+        }
+
+        return array_values($models) !== [] ? array_values($models) : self::DEFAULT_TRACKED_MODELS;
     }
 
     private function loadEnvFile(string $path): array
@@ -448,7 +458,7 @@ final class AlertBackend
         $seenKeys = $this->loadSeenKeys();
         $results = [];
 
-        foreach (self::TRACKED_MODELS as $model) {
+        foreach ($this->trackedModels as $model) {
             $items = $this->searchEbay($model);
             foreach ($this->filterLaptopListings($items, $model) as $item) {
                 $item['matched_model'] = $model;
@@ -653,23 +663,41 @@ final class AlertBackend
             : 'https://api.ebay.com';
 
         $token = $this->accessToken();
+        $pageSize = max(1, min(200, (int) $this->config['alert_limit']));
+        $maxResults = max($pageSize, (int) $this->config['max_search_results_per_model']);
+        $offset = 0;
+        $items = [];
 
-        $url = $baseUrl . '/buy/browse/v1/item_summary/search?' . http_build_query([
-            'q' => $query,
-            'limit' => $this->config['alert_limit'],
-            'offset' => 0,
-            'sort' => 'newlyListed',
-            'filter' => 'buyingOptions:{AUCTION|FIXED_PRICE}',
-        ]);
+        while ($offset < $maxResults) {
+            $url = $baseUrl . '/buy/browse/v1/item_summary/search?' . http_build_query([
+                'q' => $query,
+                'limit' => min($pageSize, $maxResults - $offset),
+                'offset' => $offset,
+                'sort' => 'newlyListed',
+                'filter' => 'buyingOptions:{AUCTION|FIXED_PRICE}',
+            ]);
 
-        $response = $this->requestJson('GET', $url, [
-            'Authorization: Bearer ' . $token,
-            'Accept: application/json',
-            'X-EBAY-C-MARKETPLACE-ID: ' . $this->config['ebay_marketplace_id'],
-        ]);
+            $response = $this->requestJson('GET', $url, [
+                'Authorization: Bearer ' . $token,
+                'Accept: application/json',
+                'X-EBAY-C-MARKETPLACE-ID: ' . $this->config['ebay_marketplace_id'],
+            ]);
 
-        $items = $response['itemSummaries'] ?? [];
-        return is_array($items) ? $items : [];
+            $pageItems = $response['itemSummaries'] ?? [];
+            if (!is_array($pageItems) || $pageItems === []) {
+                break;
+            }
+
+            array_push($items, ...$pageItems);
+
+            $offset += count($pageItems);
+            $total = isset($response['total']) ? (int) $response['total'] : 0;
+            if (($total > 0 && $offset >= $total) || count($pageItems) < $pageSize) {
+                break;
+            }
+        }
+
+        return $items;
     }
 
     private function accessToken(): string
@@ -828,96 +856,7 @@ final class AlertBackend
             return false;
         }
 
-        if ($this->containsAnyTerm($title, [
-            'camera',
-            'card',
-            'module',
-            'cable',
-            'battery',
-            'cover',
-            'pen',
-            'digitizer',
-            'socket',
-            'jack',
-            'speaker',
-            'bios',
-            'dock',
-            'docking',
-            'wwan',
-            'wireless',
-            'wifi',
-            'bluetooth',
-        ])) {
-            return false;
-        }
-
-        if (str_contains($title, 'laptop') || str_contains($title, 'notebook')) {
-            return $this->containsAnyTerm($title, [
-                'intel',
-                'core',
-                'windows',
-                'ssd',
-                'hdd',
-                'nvme',
-                'ghz',
-                '8gb',
-                '16gb',
-                '32gb',
-                '4gb',
-                'i3',
-                'i5',
-                'i7',
-                'i9',
-                'celeron',
-                'ryzen',
-                'touchscreen',
-                '12.5',
-                '13"',
-                '13.3',
-                '14"',
-                '14.0',
-                '15.6',
-                'tablet',
-            ]);
-        }
-
-        $normalizedModel = strtolower(trim($model));
-        if ($normalizedModel === '') {
-            return false;
-        }
-
-        return $this->containsAnyTerm($title, [
-            'intel',
-            'core',
-            'windows',
-            'ssd',
-            'hdd',
-            'nvme',
-            'ghz',
-            '8gb',
-            '16gb',
-            '32gb',
-            '4gb',
-            'i3',
-            'i5',
-            'i7',
-            'i9',
-            'celeron',
-            'ryzen',
-            'touchscreen',
-            '12.5',
-            '13"',
-            '13.3',
-            '14"',
-            '14.0',
-            '15.6',
-            'tablet',
-            'win 10',
-            'win 11',
-            'win11',
-            'win10',
-            'pro laptop',
-        ]);
+        return trim($model) !== '';
     }
 
     private function listingKey(array $item): string
@@ -980,7 +919,7 @@ final class AlertBackend
             'alertCount' => count($alerts),
             'trackedListings' => $trackedListings,
             'trackedCount' => count($trackedListings),
-            'models' => self::TRACKED_MODELS,
+            'models' => $this->trackedModels,
             'selectedModel' => $selectedModel ?? '',
             'selectedFormat' => $selectedFormat,
         ];
@@ -1164,7 +1103,7 @@ final class AlertBackend
     {
         $selected = trim((string) ($_GET['model'] ?? ''));
         $selectedModel = null;
-        if ($selected !== '' && in_array($selected, self::TRACKED_MODELS, true)) {
+        if ($selected !== '' && in_array($selected, $this->trackedModels, true)) {
             $selectedModel = $selected;
         }
 

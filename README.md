@@ -53,7 +53,7 @@ When `EBAY_ACCESS_TOKEN` is set, the program uses it directly and skips the OAut
 
 This repo also supports the raw credential format currently in `.env`, so it will work without rewriting that file first.
 
-To run the PHP + MariaDB alert backend for newly listed ThinkPad laptops for the specific models `X200`, `T400`, `W520`, `T430`, `X220`, `X230`, and `T480`, first create a MariaDB database:
+To run the PHP + MariaDB alert backend for tracked ThinkPad laptop listings, first create a MariaDB database:
 
 ```sql
 CREATE DATABASE ebay_find CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -70,10 +70,16 @@ DB_USER=your_user
 DB_PASSWORD=your_password
 ALERT_POLL_INTERVAL_SECONDS=300
 ALERT_LIMIT=25
+ALERT_MAX_RESULTS_PER_MODEL=250
 ALERT_EXISTING=false
+TRACKED_MODELS=X230 thinkpad,T400 thinkpad,X200 thinkpad,T500 thinkpad,W500 thinkpad,T410 thinkpad,T61 thinkpad,W520 thinkpad,X201 thinkpad
 ```
 
 Use `DB_HOST=localhost` if you want MariaDB to resolve through the local socket automatically. If your MariaDB socket lives somewhere non-standard, set `DB_SOCKET` explicitly.
+
+`TRACKED_MODELS` accepts a comma-separated or newline-separated list of exact search queries. This lets you swap in your own ThinkPad names without editing PHP code.
+
+`ALERT_LIMIT` is the eBay page size per request. `ALERT_MAX_RESULTS_PER_MODEL` controls how many total search results the poller will walk per model, so the database can capture more than the first page.
 
 If you want the database to keep collecting without the web UI, use one of these:
 
@@ -106,7 +112,8 @@ Then open `http://127.0.0.1:8081`.
 The alert UI:
 
 - polls eBay repeatedly for those models
-- filters out accessory and parts listings so it stays focused on full laptops
+- pages through more search results per model so the database can track more live listings
+- filters out obvious accessory and parts listings without dropping normal laptop titles that mention specs like RAM or SSD
 - saves seen listing keys and alert history in MariaDB so it only alerts once per listing
 - shows the actual eBay listing date in the browser
 - uses a red-on-black theme
