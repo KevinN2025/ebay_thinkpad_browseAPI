@@ -75,7 +75,27 @@ ALERT_EXISTING=false
 
 Use `DB_HOST=localhost` if you want MariaDB to resolve through the local socket automatically. If your MariaDB socket lives somewhere non-standard, set `DB_SOCKET` explicitly.
 
-Then start the local server on port `8081`:
+If you want the database to keep collecting without the web UI, use one of these:
+
+One-shot poll:
+
+```bash
+php php/bin/poll.php
+```
+
+Long-running worker:
+
+```bash
+php php/bin/worker.php --interval=300
+```
+
+If you prefer the PHP app to stay in the background after reboot, run the one-shot poll from `cron` every 5 minutes:
+
+```cron
+*/5 * * * * cd /home/dispater/Documents/ebay_find && /usr/bin/php php/bin/poll.php >> /home/dispater/Documents/ebay_find/php/poll.log 2>&1
+```
+
+You can still start the local server on port `8081` if you want the dashboard:
 
 ```bash
 php -S 127.0.0.1:8081 -t php/public php/router.php

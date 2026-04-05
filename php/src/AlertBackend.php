@@ -5,21 +5,21 @@ declare(strict_types=1);
 final class AlertBackend
 {
     private const TRACKED_MODELS = [
-        'p14s thinkpad',
-        't490 thinkpad',
-        't490s thinkpad',
-        'x200 thinkpad',
-        'x13 thinkpad',
-        'x1 carbon thinkpad',
-        't400 thinkpad',
-        't14 thinkpad',
-        't14s thinkpad',
-        'w520 thinkpad',
-        't430 thinkpad',
-        't480s thinkpad',
-        'x220 thinkpad',
-        'x230 thinkpad',
-        't480 thinkpad',
+        'P14s thinkpad',
+        'T490 thinkpad',
+        'T490s thinkpad',
+        'X200 thinkpad',
+        'X13 thinkpad',
+        'X1 carbon thinkpad',
+        'T400 thinkpad',
+        'T14 thinkpad',
+        'T14s thinkpad',
+        'W520 thinkpad',
+        'T430 thinkpad',
+        'T480s thinkpad',
+        'X220 thinkpad',
+        'X230 thinkpad',
+        'T480 thinkpad',
     ];
 
     private const EXCLUDED_TITLE_TERMS = [
@@ -149,6 +149,21 @@ final class AlertBackend
         $this->maybePoll(false);
         [$selectedModel, $selectedFormat] = $this->selectedFilters();
         $this->renderDashboard($selectedModel, $selectedFormat);
+    }
+
+    public function pollNow(bool $force = true): array
+    {
+        $this->maybePoll($force);
+        return $this->status();
+    }
+
+    public function status(): array
+    {
+        return [
+            'last_poll_at' => $this->getMeta('last_poll_at') ?? '',
+            'last_message' => $this->getMeta('last_message') ?? '',
+            'last_error' => $this->getMeta('last_error') ?? '',
+        ];
     }
 
     private function respondText(string $body, int $statusCode): void
@@ -1323,310 +1338,57 @@ final class AlertBackend
                 </div>';
         }
 
-        return '<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="refresh" content="60">
-  <title>ThinkPad Alert Monitor</title>
-  <style>
-    :root {
-      --bg: #040404;
-      --panel: #0b0b0b;
-      --panel-strong: #110707;
-      --line: rgba(255, 64, 64, 0.16);
-      --text: #f4d8d8;
-      --muted: #d18d8d;
-      --red: #ff3b3b;
-      --red-dark: #9e0f0f;
-      --red-soft: #ff8585;
-      --shadow: 0 20px 50px rgba(0, 0, 0, 0.55);
+        return $this->renderPhpTemplate($this->dashboardTemplatePath(), [
+            'alertCards' => $alertCards,
+            'dashboardCss' => $this->loadDashboardCss(),
+            'errorPanel' => $errorPanel,
+            'formatTabs' => $formatTabs,
+            'modelChips' => $modelChips,
+            'trackedCards' => $trackedCards,
+            'view' => $view,
+        ]);
     }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      min-height: 100vh;
-      background:
-        radial-gradient(circle at top left, rgba(255, 59, 59, 0.22), transparent 25rem),
-        radial-gradient(circle at bottom right, rgba(158, 15, 15, 0.25), transparent 28rem),
-        linear-gradient(180deg, #020202 0%, #070707 100%);
-      color: var(--text);
-      font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+
+    private function dashboardTemplatePath(): string
+    {
+        return $this->rootPath . '/AlertBackend.dashboard.html.php';
     }
-    .shell {
-      width: min(1120px, calc(100vw - 2rem));
-      margin: 0 auto;
-      padding: 2rem 0 3rem;
+
+    private function dashboardCssPath(): string
+    {
+        return $this->rootPath . '/AlertBackend.dashboard.css';
     }
-    .hero {
-      display: grid;
-      gap: 1rem;
-      grid-template-columns: 2fr 1fr;
-      margin-bottom: 1.3rem;
+
+    private function loadDashboardCss(): string
+    {
+        return $this->readFile($this->dashboardCssPath());
     }
-    .card, .alert {
-      background: linear-gradient(180deg, rgba(17, 7, 7, 0.92), rgba(8, 8, 8, 0.96));
-      border: 1px solid var(--line);
-      border-radius: 22px;
-      box-shadow: var(--shadow);
+
+    private function renderPhpTemplate(string $templatePath, array $variables): string
+    {
+        if (!is_file($templatePath) || !is_readable($templatePath)) {
+            throw new \RuntimeException(sprintf('unable to read template %s', $templatePath));
+        }
+
+        extract($variables, EXTR_SKIP);
+
+        ob_start();
+        include $templatePath;
+
+        return (string) ob_get_clean();
     }
-    .card {
-      padding: 1.35rem;
-    }
-    h1 {
-      margin: 0 0 0.4rem;
-      color: var(--red);
-      font-size: clamp(2.1rem, 4vw, 3.4rem);
-      line-height: 0.95;
-      letter-spacing: -0.05em;
-      text-transform: uppercase;
-    }
-    .subtitle {
-      margin: 0;
-      color: var(--muted);
-      max-width: 46rem;
-    }
-    .meta {
-      display: grid;
-      gap: 1rem;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      margin-top: 1.2rem;
-    }
-    .stat {
-      padding-top: 0.85rem;
-      border-top: 1px solid var(--line);
-    }
-    .stat-label {
-      display: block;
-      color: var(--red-soft);
-      font-size: 0.8rem;
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-    }
-    .stat-value {
-      display: block;
-      margin-top: 0.25rem;
-      font-size: 1.12rem;
-    }
-    .side {
-      display: grid;
-      gap: 0.85rem;
-      align-content: start;
-    }
-    .status {
-      padding: 0.85rem 0.95rem;
-      border-radius: 16px;
-      border: 1px solid var(--line);
-      background: rgba(255, 59, 59, 0.05);
-    }
-    .status strong {
-      display: block;
-      margin-bottom: 0.25rem;
-      color: var(--red-soft);
-      font-size: 0.8rem;
-      text-transform: uppercase;
-      letter-spacing: 0.11em;
-    }
-    .status-error {
-      border-color: rgba(255, 133, 133, 0.35);
-    }
-    .button {
-      width: 100%;
-      border: 0;
-      border-radius: 999px;
-      padding: 0.95rem 1rem;
-      background: linear-gradient(135deg, #ff2525, #7a0707);
-      color: #fff3f3;
-      font-size: 0.95rem;
-      font-weight: 700;
-      letter-spacing: 0.05em;
-      text-transform: uppercase;
-      cursor: pointer;
-    }
-    .layout {
-      display: grid;
-      gap: 1.2rem;
-      grid-template-columns: 1fr 2fr;
-    }
-    .panel h2 {
-      margin: 0 0 0.85rem;
-      color: var(--red);
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      font-size: 1rem;
-    }
-    .models {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.55rem;
-    }
-    .format-tabs {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.6rem;
-      margin-bottom: 0.95rem;
-    }
-    .format-tab {
-      display: inline-block;
-      padding: 0.55rem 0.9rem;
-      border-radius: 999px;
-      border: 1px solid rgba(255, 120, 120, 0.28);
-      color: #ffd9d9;
-      background: rgba(255, 59, 59, 0.08);
-      text-decoration: none;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      font-size: 0.84rem;
-      font-weight: 700;
-    }
-    .format-tab.active {
-      background: linear-gradient(135deg, rgba(255, 37, 37, 0.96), rgba(122, 7, 7, 0.94));
-      color: #fff6f6;
-      border-color: rgba(255, 140, 140, 0.55);
-      box-shadow: 0 0 0 1px rgba(255, 80, 80, 0.18);
-    }
-    .chip {
-      display: inline-block;
-      padding: 0.42rem 0.75rem;
-      border-radius: 999px;
-      border: 1px solid var(--line);
-      color: var(--red-soft);
-      background: rgba(255, 59, 59, 0.07);
-      font-size: 0.88rem;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      text-decoration: none;
-    }
-    .chip.active {
-      color: #fff2f2;
-      background: linear-gradient(135deg, rgba(255, 37, 37, 0.9), rgba(122, 7, 7, 0.9));
-      border-color: rgba(255, 120, 120, 0.5);
-    }
-    .alerts {
-      display: grid;
-      gap: 1rem;
-    }
-    .alert {
-      padding: 1.05rem 1.1rem;
-    }
-    .alert.auction {
-      border-color: rgba(255, 166, 64, 0.38);
-      background: linear-gradient(180deg, rgba(28, 11, 0, 0.96), rgba(11, 7, 4, 0.98));
-      box-shadow: 0 0 0 1px rgba(255, 166, 64, 0.08), var(--shadow);
-    }
-    .alert-head {
-      display: flex;
-      justify-content: space-between;
-      gap: 1rem;
-      align-items: start;
-      margin-bottom: 0.85rem;
-    }
-    .alert-head h3 {
-      margin: 0;
-      color: #ffe7e7;
-      font-size: 1.08rem;
-    }
-    .badge {
-      white-space: nowrap;
-      padding: 0.35rem 0.65rem;
-      border-radius: 999px;
-      background: rgba(255, 59, 59, 0.12);
-      border: 1px solid var(--line);
-      color: var(--red);
-      font-size: 0.8rem;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-    .grid {
-      display: grid;
-      gap: 0.65rem 1rem;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      color: var(--muted);
-      font-size: 0.93rem;
-    }
-    .grid strong {
-      color: var(--red-soft);
-    }
-    .link {
-      color: #ff6666;
-      word-break: break-all;
-    }
-    .empty {
-      padding: 1.15rem;
-      border-radius: 16px;
-      border: 1px dashed var(--line);
-      color: var(--muted);
-      background: rgba(255, 59, 59, 0.04);
-    }
-    code {
-      color: var(--red-soft);
-    }
-    @media (max-width: 860px) {
-      .hero, .layout, .meta, .grid {
-        grid-template-columns: 1fr;
-      }
-    }
-  </style>
-</head>
-<body>
-  <main class="shell">
-    <section class="hero">
-      <article class="card">
-        <h1>ThinkPad Alert Monitor</h1>
-        <p class="subtitle">PHP backend with MariaDB persistence for the eBay watcher. Repeat listings are suppressed, recent discoveries are stored in the database, and the dashboard shows the actual listing timestamps from eBay.</p>
-        <div class="meta">
-          <div class="stat">
-            <span class="stat-label">Last Poll</span>
-            <span class="stat-value">' . $this->e($view['lastPoll']) . '</span>
-          </div>
-          <div class="stat">
-            <span class="stat-label">Next Poll</span>
-            <span class="stat-value">' . $this->e($view['nextPoll']) . '</span>
-          </div>
-          <div class="stat">
-            <span class="stat-label">Stored Alerts</span>
-            <span class="stat-value">' . $this->e((string) $view['alertCount']) . '</span>
-          </div>
-          <div class="stat">
-            <span class="stat-label">Tracked Listings</span>
-            <span class="stat-value">' . $this->e((string) $view['trackedCount']) . '</span>
-          </div>
-        </div>
-      </article>
-      <aside class="side">
-        <div class="card status">
-          <strong>Status</strong>
-          <div>' . $this->e($view['status']) . '</div>
-        </div>
-        ' . $errorPanel . '
-        <div class="card status">
-          <strong>Now</strong>
-          <div>' . $this->e($view['now']) . '</div>
-        </div>
-        <form method="post" action="/refresh">
-          <button class="button" type="submit">Refresh Now</button>
-        </form>
-      </aside>
-    </section>
-    <section class="layout">
-      <aside class="card panel">
-        <h2>Tracking</h2>
-        <p class="subtitle">Automatic poll interval: <strong>' . $this->e($view['interval']) . '</strong></p>
-        <div class="format-tabs">' . $formatTabs . '</div>
-        <div class="models">' . $modelChips . '</div>
-      </aside>
-      <section class="card panel">
-        <h2>Recent Listings</h2>
-        <div class="alerts">' . $alertCards . '</div>
-      </section>
-    </section>
-    <section class="card panel" style="margin-top: 1.2rem;">
-      <h2>Tracked Listings</h2>
-      <div class="alerts">' . $trackedCards . '</div>
-    </section>
-  </main>
-</body>
-</html>';
+
+    private function readFile(string $path): string
+    {
+        if (!is_file($path) || !is_readable($path)) {
+            throw new \RuntimeException(sprintf('unable to read file %s', $path));
+        }
+
+        $contents = file_get_contents($path);
+        if ($contents === false) {
+            throw new \RuntimeException(sprintf('unable to read file %s', $path));
+        }
+
+        return $contents;
     }
 }
