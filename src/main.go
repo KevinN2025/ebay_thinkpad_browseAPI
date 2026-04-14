@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	_ "github.com/go-sql-driver/mysql"
 )
 
 type config struct {
@@ -22,6 +25,7 @@ type config struct {
 	ClientSecret  string
 	Environment   string
 	MarketplaceID string
+	DBDSN         string
 }
 
 type tokenResponse struct {
@@ -36,12 +40,17 @@ type searchResponse struct {
 }
 
 type itemSummary struct {
-	Title      string      `json:"title"`
-	ItemID     string      `json:"itemId"`
-	ItemWebURL string      `json:"itemWebUrl"`
-	Condition  string      `json:"condition"`
-	Price      moneyValue  `json:"price"`
-	Seller     sellerBrief `json:"seller"`
+	Title            string     `json:"title"`
+	ItemID           string     `json:"itemId"`
+	ItemWebURL       string     `json:"itemWebUrl"`
+	Condition        string     `json:"condition"`
+	Price            moneyValue `json:"price"`
+	Seller           sellerBrief `json:"seller"`
+	BuyingOptions    []string   `json:"buyingOptions"`
+	ItemEndDate      string     `json:"itemEndDate"`
+	CurrentBidPrice  moneyValue `json:"currentBidPrice"`
+	BidCount         int        `json:"bidCount"`
+	ItemCreationDate string     `json:"itemCreationDate"`
 }
 
 type sellerBrief struct {
@@ -80,6 +89,7 @@ func main() {
 	limit := flag.Int("limit", 10, "Number of items to return")
 	offset := flag.Int("offset", 0, "Result offset")
 	envPath := flag.String("env-file", ".env", "Path to the env file")
+	dbDSN := flag.String("db-dsn", "", "MariaDB DSN (overrides EBAY_DB_DSN env var), e.g. user:pass@tcp(localhost:3306)/ebay_find?parseTime=true")
 	flag.Parse()
 
 	if strings.TrimSpace(*query) == "" {
@@ -89,6 +99,9 @@ func main() {
 	cfg, err := loadConfig(*envPath)
 	if err != nil {
 		exitf("config error: %v", err)
+	}
+	if *dbDSN != "" {
+		cfg.DBDSN = *dbDSN
 	}
 
 	client := newEbayClient(cfg)
@@ -115,6 +128,15 @@ func main() {
 		if item.Condition != "" {
 			fmt.Printf("   Condition: %s\n", item.Condition)
 		}
+		if len(item.BuyingOptions) > 0 {
+			fmt.Printf("   Buying options: %s\n", strings.Join(item.BuyingOptions, ", "))
+		}
+		if item.CurrentBidPrice.Value != "" {
+			fmt.Printf("   Current bid: %s %s (%d bids)\n", item.CurrentBidPrice.Value, item.CurrentBidPrice.Currency, item.BidCount)
+		}
+		if item.ItemEndDate != "" {
+			fmt.Printf("   Ends: %s\n", item.ItemEndDate)
+		}
 		if item.Seller.Username != "" {
 			fmt.Printf("   Seller: %s\n", item.Seller.Username)
 		}
@@ -126,6 +148,39 @@ func main() {
 		}
 		fmt.Println()
 	}
+
+	if cfg.DBDSN == "" {
+		return
+	}
+
+	store, err := openDB(cfg.DBDSN)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "db connect error: %v\n", err)
+		return
+	}
+	defer store.db.Close()
+
+	newCount := 0
+	for _, item := range resp.ItemSummaries {
+		isNew, saveErr := store.saveItem(ctx, item, *query)
+		if saveErr != nil {
+			fmt.Fprintf(os.Stderr, "db save error for %q: %v\n", item.ItemID, saveErr)
+			continue
+		}
+		if isNew {
+			newCount++
+		}
+	}
+
+	msg := fmt.Sprintf("No new matching listings for %q", *query)
+	if newCount > 0 {
+		msg = fmt.Sprintf("%d new listing(s) found for %q", newCount, *query)
+	}
+	now := time.Now().UTC().Format("2006-01-02 15:04:05")
+	_ = store.setMeta(ctx, "last_poll_at", now)
+	_ = store.setMeta(ctx, "last_message", msg)
+	_ = store.setMeta(ctx, "last_error", "")
+	fmt.Printf("\nDB: %s\n", msg)
 }
 
 func loadConfig(envPath string) (config, error) {
@@ -135,6 +190,7 @@ func loadConfig(envPath string) (config, error) {
 		ClientSecret:  strings.TrimSpace(os.Getenv("EBAY_CLIENT_SECRET")),
 		Environment:   strings.TrimSpace(os.Getenv("EBAY_ENV")),
 		MarketplaceID: strings.TrimSpace(os.Getenv("EBAY_MARKETPLACE_ID")),
+		DBDSN:         strings.TrimSpace(os.Getenv("EBAY_DB_DSN")),
 	}
 
 	if cfg.AccessToken == "" || cfg.ClientID == "" || cfg.ClientSecret == "" || cfg.Environment == "" || cfg.MarketplaceID == "" {
@@ -156,6 +212,9 @@ func loadConfig(envPath string) (config, error) {
 		}
 		if cfg.MarketplaceID == "" {
 			cfg.MarketplaceID = fileCfg.MarketplaceID
+		}
+		if cfg.DBDSN == "" {
+			cfg.DBDSN = fileCfg.DBDSN
 		}
 	}
 
@@ -207,6 +266,7 @@ func loadDotEnvFile(path string) (config, error) {
 		ClientSecret:  values["EBAY_CLIENT_SECRET"],
 		Environment:   values["EBAY_ENV"],
 		MarketplaceID: values["EBAY_MARKETPLACE_ID"],
+		DBDSN:         values["EBAY_DB_DSN"],
 	}
 	if cfg.AccessToken != "" || cfg.ClientID != "" || cfg.ClientSecret != "" {
 		return cfg, nil
@@ -243,6 +303,8 @@ func loadDotEnvFile(path string) (config, error) {
 		MarketplaceID: "EBAY_US",
 	}, nil
 }
+
+// ---- eBay HTTP client ----
 
 type ebayClient struct {
 	httpClient *http.Client
@@ -510,4 +572,193 @@ func min(a, b int) int {
 func exitf(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, format+"\n", args...)
 	os.Exit(1)
+}
+
+// ---- Database layer ----
+
+type dbStore struct {
+	db *sql.DB
+}
+
+func openDB(dsn string) (*dbStore, error) {
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return nil, err
+	}
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("db ping: %w", err)
+	}
+	return &dbStore{db: db}, nil
+}
+
+// hasSeen returns true if listing_key is already in seen_listings.
+func (s *dbStore) hasSeen(ctx context.Context, listingKey string) (bool, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM seen_listings WHERE listing_key = ?", listingKey,
+	).Scan(&count)
+	return count > 0, err
+}
+
+// recordSeen inserts the item into seen_listings (no-op if already present).
+func (s *dbStore) recordSeen(ctx context.Context, item itemSummary, matchedModel string) error {
+	listingKey := "url:" + item.ItemWebURL
+	_, err := s.db.ExecContext(ctx, `
+		INSERT IGNORE INTO seen_listings
+			(listing_key, item_id, item_url, title, matched_model,
+			 listed_at, origin_listed_at,
+			 price_value, price_currency, condition_label,
+			 item_end_date, buying_options,
+			 current_bid_value, current_bid_currency, bid_count)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		listingKey,
+		nullStr(item.ItemID),
+		item.ItemWebURL,
+		item.Title,
+		matchedModel,
+		nullTime(parseEbayTime(item.ItemCreationDate)),
+		nullTime(parseEbayTime(item.ItemCreationDate)),
+		nullStr(item.Price.Value),
+		nullStr(item.Price.Currency),
+		nullStr(item.Condition),
+		nullTime(parseEbayTime(item.ItemEndDate)),
+		nullStr(strings.Join(item.BuyingOptions, ",")),
+		nullStr(item.CurrentBidPrice.Value),
+		nullStr(item.CurrentBidPrice.Currency),
+		item.BidCount,
+	)
+	return err
+}
+
+// upsertBuyNow inserts the item into buy_now (no-op if already present).
+func (s *dbStore) upsertBuyNow(ctx context.Context, item itemSummary, matchedModel string) error {
+	listingKey := "url:" + item.ItemWebURL
+	_, err := s.db.ExecContext(ctx, `
+		INSERT IGNORE INTO buy_now
+			(listing_key, title, matched_model,
+			 price_value, price_currency, condition_label,
+			 item_url, item_id,
+			 listed_at, origin_listed_at, buying_options)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		listingKey,
+		item.Title,
+		matchedModel,
+		nullStr(item.Price.Value),
+		nullStr(item.Price.Currency),
+		nullStr(item.Condition),
+		item.ItemWebURL,
+		nullStr(item.ItemID),
+		nullTime(parseEbayTime(item.ItemCreationDate)),
+		nullTime(parseEbayTime(item.ItemCreationDate)),
+		nullStr(strings.Join(item.BuyingOptions, ",")),
+	)
+	return err
+}
+
+// upsertAuction inserts the item into auctions (no-op if already present).
+func (s *dbStore) upsertAuction(ctx context.Context, item itemSummary, matchedModel string) error {
+	listingKey := "url:" + item.ItemWebURL
+	_, err := s.db.ExecContext(ctx, `
+		INSERT IGNORE INTO auctions
+			(listing_key, item_id, item_url, title, matched_model,
+			 listed_at, origin_listed_at,
+			 price_value, price_currency, condition_label,
+			 item_end_date, buying_options,
+			 current_bid_value, current_bid_currency, bid_count)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		listingKey,
+		nullStr(item.ItemID),
+		item.ItemWebURL,
+		item.Title,
+		matchedModel,
+		nullTime(parseEbayTime(item.ItemCreationDate)),
+		nullTime(parseEbayTime(item.ItemCreationDate)),
+		nullStr(item.Price.Value),
+		nullStr(item.Price.Currency),
+		nullStr(item.Condition),
+		nullTime(parseEbayTime(item.ItemEndDate)),
+		nullStr(strings.Join(item.BuyingOptions, ",")),
+		nullStr(item.CurrentBidPrice.Value),
+		nullStr(item.CurrentBidPrice.Currency),
+		item.BidCount,
+	)
+	return err
+}
+
+// setMeta upserts a key/value pair in app_meta.
+func (s *dbStore) setMeta(ctx context.Context, key, value string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO app_meta (meta_key, meta_value) VALUES (?, ?)
+		ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)`,
+		key, value,
+	)
+	return err
+}
+
+// saveItem checks seen_listings, then persists to seen_listings and either
+// buy_now or auctions based on BuyingOptions. Returns true if the item was new.
+func (s *dbStore) saveItem(ctx context.Context, item itemSummary, matchedModel string) (bool, error) {
+	listingKey := "url:" + item.ItemWebURL
+	seen, err := s.hasSeen(ctx, listingKey)
+	if err != nil {
+		return false, err
+	}
+	if seen {
+		return false, nil
+	}
+
+	if err := s.recordSeen(ctx, item, matchedModel); err != nil {
+		return false, err
+	}
+
+	isAuction := false
+	for _, opt := range item.BuyingOptions {
+		if opt == "AUCTION" {
+			isAuction = true
+			break
+		}
+	}
+
+	if isAuction {
+		if err := s.upsertAuction(ctx, item, matchedModel); err != nil {
+			return false, err
+		}
+	} else {
+		if err := s.upsertBuyNow(ctx, item, matchedModel); err != nil {
+			return false, err
+		}
+	}
+
+	return true, nil
+}
+
+// parseEbayTime parses an RFC3339 timestamp from the eBay API.
+// Returns the zero time if the string is empty or unparseable.
+func parseEbayTime(s string) time.Time {
+	if s == "" {
+		return time.Time{}
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}
+
+// nullStr returns nil for an empty string, otherwise the string itself.
+// This lets database/sql bind NULL for optional VARCHAR columns.
+func nullStr(s string) interface{} {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+// nullTime returns nil for a zero time, otherwise a MySQL-formatted string.
+func nullTime(t time.Time) interface{} {
+	if t.IsZero() {
+		return nil
+	}
+	return t.UTC().Format("2006-01-02 15:04:05")
 }
