@@ -20,11 +20,11 @@ queries=(
 
 cd "$DIR"
 
-echo "[$(date -u '+%Y-%m-%d %H:%M:%S UTC')] === Poll started ===" >> "$LOG"
+echo "[$(TZ='America/New_York' date '+%Y-%m-%d %H:%M:%S %Z')] === Poll started ===" >> "$LOG"
 
 for q in "${queries[@]}"; do
-  echo "[$(date -u '+%Y-%m-%d %H:%M:%S UTC')] Polling: $q" >> "$LOG"
+  echo "[$(TZ='America/New_York' date '+%Y-%m-%d %H:%M:%S %Z')] Polling: $q" >> "$LOG"
   "$BIN" -query "$q" -limit 50 >> "$LOG" 2>&1 || true
 done
 
-echo "[$(date -u '+%Y-%m-%d %H:%M:%S UTC')] === Poll complete ===" >> "$LOG"
+echo "[$(TZ='America/New_York' date '+%Y-%m-%d %H:%M:%S %Z')] === Poll complete ===" >> "$LOG"
