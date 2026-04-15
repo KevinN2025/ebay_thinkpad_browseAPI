@@ -19,12 +19,13 @@
           ];
 
           shellHook = ''
+          mkdir -p "$HOME/.config/lazysql"
             cat > "$HOME/.config/lazysql/config.toml" << 'EOF'
 [[database]]
 Name = 'Local MariaDB'
 Provider = 'mysql'
 DBName = 'ebay_find'
-URL = 'mysql://KevinN:Eagles7713%40127.0.0.1:3306/ebay_find'
+URL = 'mysql://KevinN:Eagles7713%40@127.0.0.1:3306/ebay_find'
 
 [application]
 DefaultPageSize = 400
