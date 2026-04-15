@@ -1,5 +1,4 @@
 .env
 .json
-CLAUDE.md
 flake.lock
 refresh.log
