@@ -1,8 +1,8 @@
-BINARY  := ef
+BINARY  := man/ef
 SRC     := ./src
 MANDIR  := /usr/local/share/man/man1
 
-.PHONY: build run test clean install install-man db-setup
+.PHONY: build run test clean install uninstall db-setup
 
 build:
 	go build -o $(BINARY) $(SRC)
@@ -17,12 +17,14 @@ clean:
 	rm -f $(BINARY)
 
 install: build
-	sudo cp $(BINARY) /usr/local/bin/$(BINARY)
+	sudo install -Dm755 $(BINARY) /usr/local/bin/$(BINARY)
+	sudo install -Dm644 $(BINARY).1 $(MANDIR)/$(BINARY).1
+	sudo mandb -q
 
-install-man:
-	sudo mkdir -p $(MANDIR)
-	sudo cp $(BINARY).1 $(MANDIR)/$(BINARY).1
-	sudo mandb
+uninstall:
+	sudo rm -f /usr/local/bin/$(BINARY)
+	sudo rm -f $(MANDIR)/$(BINARY).1
+	sudo mandb -q
 
 db-setup:
 ifndef DB_USER

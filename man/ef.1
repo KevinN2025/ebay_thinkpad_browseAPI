@@ -1,21 +1,20 @@
 .TH EF 1 "April 2026" "ef" "User Commands"
 .SH NAME
-ef \- search eBay Thinkpad laptops
+ef \- search eBay for used ThinkPad laptops
 .SH SYNOPSIS
 .B ef
-.BR \-\-query | \-q
-\(dq\fIkeywords\fR\(dq
-.RB [ \-\-exclude | \-e
-\(dq\fIwords\fR\(dq ]
-.RB [ \-\-limit | \-l
+.B \-\-query
+.I keywords
+.RB [ \-\-exclude
+.IR words ]
+.RB [ \-\-limit
 .IR n ]
-.RB [ \-\-offset | \-o
+.RB [ \-\-offset
 .IR n ]
-.RB [ \-\-env\-file | \-f
+.RB [ \-\-env\-file
 .IR path ]
-.RB [ \-\-db\-dsn | \-d
+.RB [ \-\-db\-dsn
 .IR dsn ]
-.RB [ \-\-help | \-h ]
 .SH DESCRIPTION
 .B ef
 queries the eBay Browse API for laptop listings and applies a two-pass title filter:
@@ -30,45 +29,39 @@ or
 table based on its buying option.
 .SH OPTIONS
 .TP
-.BR \-\-query ", " \-q " \(dq" \fIkeywords\fR \(dq
+.BI \-\-query " keywords"
 .RB ( Required )
-Space-separated search keywords enclosed in double quotes. Only listings whose titles contain
+Space-separated search keywords. Only listings whose titles contain
 .I all
 keywords are returned. Example:
-.B \-\-query \(DqThinkPad T14\(dq
+.B \-\-query \(Dq"ThinkPad T14"\(Dq
 .TP
-.BR \-\-exclude ", " \-e " \(dq" \fIwords\fR \(dq
-Additional space-separated words enclosed in double quotes to exclude from titles,
-on top of the built-in accessory filter. Example:
-.B \-\-exclude \(dqbattery cracked\(dq
+.BI \-\-exclude " words"
+Additional space-separated words to exclude from titles, on top of the built-in
+accessory filter. Example:
+.B \-\-exclude \(Dq"battery cracked"\(Dq
 .TP
-.BR \-\-limit ", " \-l " " \fIn\fR
+.BI \-\-limit " n"
 Number of results to return. Default:
 .BR 10 .
 .TP
-.BR \-\-offset ", " \-o " " \fIn\fR
+.BI \-\-offset " n"
 Skip the first
 .I n
 results. Useful for paging. Default:
 .BR 0 .
 .TP
-.BR \-\-env\-file ", " \-f " " \fIpath\fR
+.BI \-\-env\-file " path"
 Path to the
 .B .env
 credentials file. Default:
 .BR .env .
 .TP
-.BR \-\-db\-dsn ", " \-d " " \fIdsn\fR
+.BI \-\-db\-dsn " dsn"
 MariaDB DSN. Overrides the
 .B EBAY_DB_DSN
-environment variable.
-Format:
-.RS
-.I user:pass@tcp(host:port)/dbname?parseTime=true
-.RE
-.TP
-.BR \-\-help ", " \-h
-Show a short usage summary and exit.
+environment variable. Format:
+.IR user:pass@tcp(host:port)/dbname?parseTime=true .
 .SH CONFIGURATION
 Credentials are read from environment variables or a
 .B .env
@@ -99,15 +92,29 @@ ultrabase, charger, adapter, ac adapter, power adapter, power supply,
 dock, docking station, port replicator
 .RE
 .SH EXAMPLES
-.EX
-ef \-\-query \(dqThinkPad X1 Carbon\(dq
-
-ef \-\-query \(dqThinkPad T480\(dq \-\-limit 25 \-\-exclude \(dqparts only\(dq
-
-ef \-\-query \(dqThinkPad T480\(dq \-\-limit 10 \-\-offset 10
-
-ef \-\-query \(dqThinkPad X13\(dq \-\-db\-dsn user:pass@tcp(localhost:3306)/ef?parseTime=true
-.EE
+Basic search:
+.PP
+.RS
+.B ef \-\-query \(DqThinkPad X1 Carbon\(Dq
+.RE
+.PP
+Return 25 results and exclude a specific condition:
+.PP
+.RS
+.B ef \-\-query \(DqThinkPad T480\(Dq \-\-limit 25 \-\-exclude \(Dqparts only\(Dq
+.RE
+.PP
+Page through results:
+.PP
+.RS
+.B ef \-\-query \(DqThinkPad T480\(Dq \-\-limit 10 \-\-offset 10
+.RE
+.PP
+Use production API with explicit DSN:
+.PP
+.RS
+.B ef \-\-query \(DqThinkPad X13\(Dq \-\-db\-dsn \(Dquser:pass@tcp(localhost:3306)/ef?parseTime=true\(Dq
+.RE
 .SH DATABASE
 When
 .B EBAY_DB_DSN
