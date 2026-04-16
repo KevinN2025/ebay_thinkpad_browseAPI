@@ -2,7 +2,7 @@
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BIN="$DIR/ebay_find"
+BIN="$DIR/ef"
 LOG="$DIR/refresh.log"
 
 queries=(

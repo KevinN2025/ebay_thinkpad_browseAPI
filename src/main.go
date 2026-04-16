@@ -10,16 +10,41 @@ import (
 )
 
 func main() {
-	query := flag.String("query", "", "Search keywords, for example: -query \"thinkpad t14\"")
-	exclude := flag.String("exclude", "", "Exclude listings whose titles contain these words in addition to the built-in accessory filters, for example: -exclude \"battery cracked\"")
+	query := flag.String("query", "", "Search keywords, for example: --query \"ThinkPad T14\"")
+	exclude := flag.String("exclude", "", "Exclude listings whose titles contain these words in addition to the built-in accessory filters, for example: --exclude \"battery cracked\"")
 	limit := flag.Int("limit", 10, "Number of items to return")
 	offset := flag.Int("offset", 0, "Result offset")
 	envPath := flag.String("env-file", ".env", "Path to the env file")
 	dbDSN := flag.String("db-dsn", "", "MariaDB DSN (overrides EBAY_DB_DSN env var), e.g. user:pass@tcp(localhost:3306)/ebay_find?parseTime=true")
+
+	// Short aliases
+	flag.StringVar(query, "q", "", "Shorthand for --query")
+	flag.StringVar(exclude, "e", "", "Shorthand for --exclude")
+	flag.IntVar(limit, "l", 10, "Shorthand for --limit")
+	flag.IntVar(offset, "o", 0, "Shorthand for --offset")
+	flag.StringVar(envPath, "f", ".env", "Shorthand for --env-file")
+	flag.StringVar(dbDSN, "d", "", "Shorthand for --db-dsn")
+
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: ef --query <keywords> [options]\n\n")
+		fmt.Fprintf(os.Stderr, "Options:\n")
+		fmt.Fprintf(os.Stderr, "  -q, --query    <keywords>  Search keywords (required)\n")
+		fmt.Fprintf(os.Stderr, "  -e, --exclude  <words>     Exclude titles containing these words\n")
+		fmt.Fprintf(os.Stderr, "  -l, --limit    <n>         Number of results (default: 10)\n")
+		fmt.Fprintf(os.Stderr, "  -o, --offset   <n>         Result offset for paging (default: 0)\n")
+		fmt.Fprintf(os.Stderr, "  -f, --env-file <path>      Path to .env credentials file (default: .env)\n")
+		fmt.Fprintf(os.Stderr, "  -d, --db-dsn   <dsn>       MariaDB DSN, overrides EBAY_DB_DSN\n")
+		fmt.Fprintf(os.Stderr, "  -h, --help                 Show this help message\n")
+		fmt.Fprintf(os.Stderr, "\nExamples:\n")
+		fmt.Fprintf(os.Stderr, "  ef --query \"ThinkPad X1 Carbon\"\n")
+		fmt.Fprintf(os.Stderr, "  ef -q \"ThinkPad T480\" -l 25 -e \"parts only\"\n")
+		fmt.Fprintf(os.Stderr, "  ef --query \"ThinkPad T480\" --limit 10 --offset 10\n")
+	}
+
 	flag.Parse()
 
 	if strings.TrimSpace(*query) == "" {
-		exitf("missing required -query argument")
+		exitf("missing required --query argument")
 	}
 
 	cfg, err := loadConfig(*envPath)
@@ -102,7 +127,7 @@ func main() {
 	if newCount > 0 {
 		msg = fmt.Sprintf("%d new listing(s) found for %q", newCount, *query)
 	}
-	now := time.Now().UTC().Format("2006-01-02 15:04:05")
+		now := time.Now().Local().Format("2006-01-02 15:04:05")
 	_ = store.setMeta(ctx, "last_poll_at", now)
 	_ = store.setMeta(ctx, "last_message", msg)
 	_ = store.setMeta(ctx, "last_error", "")

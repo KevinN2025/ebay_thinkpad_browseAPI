@@ -194,5 +194,5 @@ func nullTime(t time.Time) interface{} {
 	if t.IsZero() {
 		return nil
 	}
-	return t.UTC().Format("2006-01-02 15:04:05")
+	return t.Local().Format("2006-01-02 15:04:05")
 }

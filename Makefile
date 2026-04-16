@@ -1,7 +1,8 @@
-BINARY  := ebay_find
+BINARY  := ef
 SRC     := ./src
+MANDIR  := /usr/local/share/man/man1
 
-.PHONY: build run test clean install db-setup
+.PHONY: build run test clean install install-man db-setup
 
 build:
 	go build -o $(BINARY) $(SRC)
@@ -17,6 +18,11 @@ clean:
 
 install: build
 	sudo cp $(BINARY) /usr/local/bin/$(BINARY)
+
+install-man:
+	sudo mkdir -p $(MANDIR)
+	sudo cp $(BINARY).1 $(MANDIR)/$(BINARY).1
+	sudo mandb
 
 db-setup:
 ifndef DB_USER
