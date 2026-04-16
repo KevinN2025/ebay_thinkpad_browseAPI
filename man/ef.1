@@ -1,0 +1,155 @@
+.TH EF 1 "April 2026" "ef" "User Commands"
+.SH NAME
+ef \- search eBay Thinkpad laptops
+.SH SYNOPSIS
+.B ef
+.BR \-\-query | \-q
+\(dq\fIkeywords\fR\(dq
+.RB [ \-\-exclude | \-e
+\(dq\fIwords\fR\(dq ]
+.RB [ \-\-limit | \-l
+.IR n ]
+.RB [ \-\-offset | \-o
+.IR n ]
+.RB [ \-\-env\-file | \-f
+.IR path ]
+.RB [ \-\-db\-dsn | \-d
+.IR dsn ]
+.RB [ \-\-help | \-h ]
+.SH DESCRIPTION
+.B ef
+queries the eBay Browse API for laptop listings and applies a two-pass title filter:
+all query terms must appear in the title, and accessory-related terms (chargers, docks,
+adapters, etc.) are automatically excluded.
+.PP
+Results are printed to stdout. If a database DSN is configured, each new listing is
+saved to MariaDB and routed to either the
+.B auctions
+or
+.B buy_now
+table based on its buying option.
+.SH OPTIONS
+.TP
+.BR \-\-query ", " \-q " \(dq" \fIkeywords\fR \(dq
+.RB ( Required )
+Space-separated search keywords enclosed in double quotes. Only listings whose titles contain
+.I all
+keywords are returned. Example:
+.B \-\-query \(DqThinkPad T14\(dq
+.TP
+.BR \-\-exclude ", " \-e " \(dq" \fIwords\fR \(dq
+Additional space-separated words enclosed in double quotes to exclude from titles,
+on top of the built-in accessory filter. Example:
+.B \-\-exclude \(dqbattery cracked\(dq
+.TP
+.BR \-\-limit ", " \-l " " \fIn\fR
+Number of results to return. Default:
+.BR 10 .
+.TP
+.BR \-\-offset ", " \-o " " \fIn\fR
+Skip the first
+.I n
+results. Useful for paging. Default:
+.BR 0 .
+.TP
+.BR \-\-env\-file ", " \-f " " \fIpath\fR
+Path to the
+.B .env
+credentials file. Default:
+.BR .env .
+.TP
+.BR \-\-db\-dsn ", " \-d " " \fIdsn\fR
+MariaDB DSN. Overrides the
+.B EBAY_DB_DSN
+environment variable.
+Format:
+.RS
+.I user:pass@tcp(host:port)/dbname?parseTime=true
+.RE
+.TP
+.BR \-\-help ", " \-h
+Show a short usage summary and exit.
+.SH CONFIGURATION
+Credentials are read from environment variables or a
+.B .env
+file (see
+.BR \-\-env\-file ).
+.PP
+.TS
+l l l.
+Variable	Required	Description
+_
+EBAY_CLIENT_ID	Yes*	eBay App ID (Client ID)
+EBAY_CLIENT_SECRET	Yes*	eBay Cert ID (Client Secret)
+EBAY_ACCESS_TOKEN	No	Pre-fetched OAuth token (skips auto-refresh)
+EBAY_ENV	No	\fBsandbox\fR or \fBproduction\fR (default: sandbox)
+EBAY_MARKETPLACE_ID	No	e.g. EBAY_US (default: EBAY_US)
+EBAY_DB_DSN	No	MariaDB DSN; omit to skip database persistence
+.TE
+.PP
+* Required unless
+.B EBAY_ACCESS_TOKEN
+is set.
+.SH BUILT-IN EXCLUSIONS
+The following terms are always excluded from results regardless of
+.BR \-\-exclude :
+.PP
+.RS
+ultrabase, charger, adapter, ac adapter, power adapter, power supply,
+dock, docking station, port replicator
+.RE
+.SH EXAMPLES
+.EX
+ef \-\-query \(dqThinkPad X1 Carbon\(dq
+
+ef \-\-query \(dqThinkPad T480\(dq \-\-limit 25 \-\-exclude \(dqparts only\(dq
+
+ef \-\-query \(dqThinkPad T480\(dq \-\-limit 10 \-\-offset 10
+
+ef \-\-query \(dqThinkPad X13\(dq \-\-db\-dsn user:pass@tcp(localhost:3306)/ef?parseTime=true
+.EE
+.SH DATABASE
+When
+.B EBAY_DB_DSN
+is set, new listings are saved to MariaDB after each search.
+The schema contains four tables:
+.TP
+.B seen_listings
+Deduplication table. Every listing that passes the filter is recorded here.
+A listing is considered new only if its URL has not been seen before.
+.TP
+.B buy_now
+Fixed-price listings.
+.TP
+.B auctions
+Auction listings, including end date, current bid, and bid count.
+.TP
+.B app_meta
+Key/value store for run state:
+.BR last_poll_at ,
+.BR last_message ,
+.BR last_error .
+.PP
+To initialize the database:
+.PP
+.RS
+.B make db-setup DB_USER=\fIuser\fB DB_PASS=\fIpass\fB DB_NAME=ef
+.RE
+.SH FILES
+.TP
+.B .env
+Default credentials file read at startup.
+.TP
+.B db/refresh.sh
+Shell script that polls a predefined set of ThinkPad models and appends output to
+.BR db/refresh.log .
+Suitable for use with
+.BR cron (8).
+.TP
+.B db/ebayDB.sql
+MariaDB schema dump used to initialize the database.
+.SH SEE ALSO
+.BR cron (8),
+.BR mysql (1)
+.SH AUTHOR
+Kevin Noguera
