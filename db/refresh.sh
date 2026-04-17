@@ -2,7 +2,8 @@
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BIN="$DIR/ef"
+ROOT="$DIR/.."
+BIN="$ROOT/man/ef"
 LOG="$DIR/refresh.log"
 
 queries=(
@@ -34,7 +35,6 @@ echo "[$(TZ='America/New_York' date '+%Y-%m-%d %H:%M:%S %Z')] === Poll started =
 
 for q in "${queries[@]}"; do
   echo "[$(TZ='America/New_York' date '+%Y-%m-%d %H:%M:%S %Z')] Polling: $q" >> "$LOG"
-  "$BIN" --query "$q" --limit 50 >> "$LOG" 2>&1 || true
+  "$BIN" --query "$q" --limit 50 --env-file "$ROOT/.env" >> "$LOG" 2>&1 || true
 done
 
-echo "[$(TZ='America/New_York' date '+%Y-%m-%d %H:%M:%S %Z')] === Poll complete ===" >> "$LOG"
