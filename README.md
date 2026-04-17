@@ -41,9 +41,9 @@ ef --query "Thinkpad T480" --limit 10
 <img width="1398" height="764" alt="image" src="https://github.com/user-attachments/assets/785d458c-74cf-4aa2-8d63-67c6869c948b" />
 
 ## Lazysql Usage
-Within my repository i have a flake that installs lazysql and the necessary configuration needed to start it. Of course for the URL section of your lazysql config.toml you will have to change it to your databse username and password.
+Within my repository i have a nix flake that installs lazysql and the necessary configuration needed to start it. Of course for the URL section of your lazysql config.toml you will have to change it to your databse username and password.
 
-Install the flake 
+Install lazysql with flake.nix
 ```bash
 nix develop
 ```
@@ -51,7 +51,7 @@ After the packages are installed and the config has been written.
 ```bash
 lazysql
 ```
-Give love to the lazysql author. His work is greatly appreciated: 
+**Give love to the lazysql author. His work is greatly appreciated:** 
 https://github.com/jorgerojas26/lazysql.git
 
 ***Screenshot***
