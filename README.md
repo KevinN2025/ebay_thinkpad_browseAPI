@@ -1,4 +1,10 @@
-# Thinkpad Tracker
+# EbayFind
+
+***First and foremost, clone the repository***
+```bash
+git clone https://github.com/KevinN2025/EbayFind.git
+cd EbayFind
+```
 
 ***Install the dependencies via the Makefile***
 ```bash
