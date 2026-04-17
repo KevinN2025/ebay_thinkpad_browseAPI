@@ -51,9 +51,9 @@ https://github.com/jorgerojas26/lazysql.git
 Once you run the Makefile you can view the man page with
 ```bash
 man ef
-
-<img width="1418" height="135" alt="image" src="https://github.com/user-attachments/assets/29d13653-6c29-44c0-849f-3e0158a11d0d" />
 ```
+<img width="1418" height="135" alt="image" src="https://github.com/user-attachments/assets/29d13653-6c29-44c0-849f-3e0158a11d0d" />
+
 ## Refresh DB with crontab
 I have the script refresh.sh that automatically runs via a crontab every 15 minutes. Thus, it is continuously updated and a file named refresh.log 
 will be subsequently produced. 
