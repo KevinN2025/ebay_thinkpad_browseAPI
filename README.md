@@ -41,14 +41,14 @@ After the packages are installed and the config has been written.
 ```bash
 lazysql
 ```
-Give love to the lazysql author: 
+Give love to the lazysql author. His work is greatly appreciated: 
 https://github.com/jorgerojas26/lazysql.git
 
 ***Screenshot***
 <img width="1860" height="966" alt="image" src="https://github.com/user-attachments/assets/d3b91def-4965-43b1-8bf1-807542db18e4" />
 
 ## Man Page
-Once you run the makefile you can view the man page with
+Once you run the Makefile you can view the man page with
 ```bash
 man ef
 ```
