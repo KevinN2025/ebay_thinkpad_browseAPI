@@ -2,13 +2,19 @@ BINARY  := man/ef
 SRC     := ./src
 MANDIR  := /usr/local/share/man/man1
 
-.PHONY: build run test clean install uninstall db-setup
+.PHONY: build run deps dev test clean install uninstall db-setup
 
-build:
+build: $(BINARY)
+
+$(BINARY): $(wildcard src/*.go) go.mod go.sum
 	go build -o $(BINARY) $(SRC)
 
 run: build
 	./$(BINARY) $(ARGS)
+
+deps: go.mod go.sum
+	go mod download
+	go mod verify
 
 test:
 	go test ./...
@@ -16,9 +22,9 @@ test:
 clean:
 	rm -f $(BINARY)
 
-install: build
-	sudo install -Dm755 $(BINARY) /usr/local/bin/$(BINARY)
-	sudo install -Dm644 $(BINARY).1 $(MANDIR)/$(BINARY).1
+install: deps build
+	sudo install -Dm755 $(BINARY) /usr/local/bin/$(notdir $(BINARY))
+	sudo install -Dm644 man/$(notdir $(BINARY)).1 $(MANDIR)/$(notdir $(BINARY)).1
 	sudo mandb -q
 
 uninstall:
@@ -36,4 +42,4 @@ endif
 ifndef DB_NAME
 	$(error DB_NAME is not set)
 endif
-	mysql -u$(DB_USER) -p$(DB_PASS) $(DB_NAME) < db/ebayDB.sql
+	mariadb -u$(DB_USER) -p$(DB_PASS) $(DB_NAME) < db/ebayDB.sql
