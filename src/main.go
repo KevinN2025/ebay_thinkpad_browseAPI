@@ -36,10 +36,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  -d, --db-dsn   <dsn>       MariaDB DSN, overrides EBAY_DB_DSN\n")
 		fmt.Fprintf(os.Stderr, "  -h, --help                 Show this help message\n")
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
-		fmt.Fprintf(os.Stderr, "  ef --query ThinkPad X1 Carbon\n")
-		fmt.Fprintf(os.Stderr, "  ef -q ThinkPad T480 -l 25 -e \"parts only\"\n")
-		fmt.Fprintf(os.Stderr, "  ef --query ThinkPad T480 --limit 10 --offset 10\n")
-		fmt.Fprintf(os.Stderr, "  ef --query ThinkPad X13 --db-dsn \"user:pass@tcp(localhost:3306)/ef?parseTime=true\"\n")
+		fmt.Fprintf(os.Stderr, "  ef --query \"ThinkPad X1 Carbon\"\n")
+		fmt.Fprintf(os.Stderr, "  ef --query \"ThinkPad T480\" -l 25 -e \"parts only\"\n")
+		fmt.Fprintf(os.Stderr, "  ef --query \"ThinkPad T480\" --limit 10 --offset 10\n")
+		fmt.Fprintf(os.Stderr, "  ef --query \"ThinkPad X13\" --db-dsn \"user:pass@tcp(localhost:3306)/ef?parseTime=true\"\n")
 	}
 
 	flag.Parse()
@@ -122,6 +122,10 @@ func main() {
 		if isNew {
 			newCount++
 		}
+	}
+
+	if err := store.pruneOldListings(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "db prune error: %v\n", err)
 	}
 
 	msg := fmt.Sprintf("No new matching listings for %q", *query)

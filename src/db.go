@@ -41,17 +41,15 @@ func (s *dbStore) recordSeen(ctx context.Context, item itemSummary, matchedModel
 	_, err := s.db.ExecContext(ctx, `
 		INSERT IGNORE INTO seen_listings
 			(listing_key, item_id, item_url, title, matched_model,
-			 listed_at, origin_listed_at,
-			 price_value, price_currency, condition_label,
+			 listed_at, price_value, price_currency, condition_label,
 			 item_end_date, buying_options,
 			 current_bid_value, current_bid_currency, bid_count)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		listingKey,
 		nullStr(item.ItemID),
 		item.ItemWebURL,
 		item.Title,
 		matchedModel,
-		nullTime(parseEbayTime(item.ItemCreationDate)),
 		nullTime(parseEbayTime(item.ItemCreationDate)),
 		nullStr(item.Price.Value),
 		nullStr(item.Price.Currency),
@@ -165,6 +163,38 @@ func (s *dbStore) saveItem(ctx context.Context, item itemSummary, matchedModel s
 	}
 
 	return true, nil
+}
+
+// pruneOldListings deletes rows older than 14 days from all listing tables,
+// and removes expired auctions based on item_end_date in Eastern Time.
+func (s *dbStore) pruneOldListings(ctx context.Context) error {
+	cutoff := time.Now().AddDate(0, 0, -14).Format("2006-01-02 15:04:05")
+	tables := []struct {
+		name   string
+		column string
+	}{
+		{"auctions", "first_seen_at"},
+		{"buy_now", "discovered_at"},
+		{"seen_listings", "first_seen_at"},
+	}
+	for _, t := range tables {
+		_, err := s.db.ExecContext(ctx,
+			fmt.Sprintf("DELETE FROM `%s` WHERE `%s` < ?", t.name, t.column),
+			cutoff,
+		)
+		if err != nil {
+			return fmt.Errorf("prune %s: %w", t.name, err)
+		}
+	}
+
+	_, err := s.db.ExecContext(ctx,
+		"DELETE FROM auctions WHERE item_end_date < CONVERT_TZ(NOW(), 'UTC', 'America/New_York')",
+	)
+	if err != nil {
+		return fmt.Errorf("prune expired auctions: %w", err)
+	}
+
+	return nil
 }
 
 // parseEbayTime parses an RFC3339 timestamp from the eBay API.

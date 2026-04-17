@@ -119,6 +119,7 @@ func (c ebayClient) search(ctx context.Context, token, query string, limit, offs
 	params.Set("q", query)
 	params.Set("limit", fmt.Sprintf("%d", limit))
 	params.Set("offset", fmt.Sprintf("%d", offset))
+	params.Set("sort", "newlyListed")
 	u.RawQuery = params.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
