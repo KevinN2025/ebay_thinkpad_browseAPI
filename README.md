@@ -70,3 +70,5 @@ will be subsequently produced.
 ```bash
 */15 * * * * $HOME/Documents/EbayFind/db/refresh.sh
 ```
+## Note!
+My specific Database and program are catered towards finding Thinkpads I am looking for resell and flipping purposes. Feel free to change the program for your specific needs
