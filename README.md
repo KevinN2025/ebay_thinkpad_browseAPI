@@ -71,4 +71,9 @@ will be subsequently produced.
 */15 * * * * $HOME/Documents/EbayFind/db/refresh.sh
 ```
 ## Note!
+
+You need to open a ebay developer account and wait a day before your account is approved. After that, you can set your browseAPI and keep it secret to yourself. For obvious reasons, my API key wasn't shared within this repository. The user has to set up their own API EBAY_CLIENT_ID & EBAY_ACCESS_TOKEN.
+
+This data is in the .env file & this is where you also aggregate your database info.
+
 My specific Database and program are catered towards finding Thinkpads I am looking for resell and flipping purposes. Feel free to change the program for your specific needs
