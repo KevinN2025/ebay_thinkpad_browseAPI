@@ -7,20 +7,24 @@ sudo make install
 
 ***EbayFind(ef)***
 ```bash
- ef --help
-Usage of ef:
-  -db-dsn string
-        MariaDB DSN (overrides EBAY_DB_DSN env var), e.g. user:pass@tcp(localhost:3306)/ebay_find?parseTime=true
-  -env-file string
-        Path to the env file (default ".env")
-  -exclude string
-        Exclude listings whose titles contain these words in addition to the built-in accessory filters, for example: --exclude "battery cracked"
-  -limit int
-        Number of items to return (default 10)
-  -offset int
-        Result offset
-  -query string
-        Search keywords, for example: --query "ThinkPad T14"
+ef --help
+
+ Usage: ef --query <keywords> [options]
+
+Options:
+  -q, --query    <keywords>  Search keywords (required)
+  -e, --exclude  <words>     Exclude titles containing these words
+  -l, --limit    <n>         Number of results (default: 10)
+  -o, --offset   <n>         Result offset for paging (default: 0)
+  -f, --env-file <path>      Path to .env credentials file (default: .env)
+  -d, --db-dsn   <dsn>       MariaDB DSN, overrides EBAY_DB_DSN
+  -h, --help                 Show this help message
+
+Examples:
+  ef --query "ThinkPad X1 Carbon"
+  ef --query "ThinkPad T480" -l 25 -e "parts only"
+  ef --query "ThinkPad T480" --limit 10 --offset 10
+  ef --query "ThinkPad X13" --db-dsn "user:pass@tcp(localhost:3306)/ef?parseTime=true"
 ```
 
 ## Query Example to find instances of Thinkpad T480
