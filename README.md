@@ -58,11 +58,12 @@ https://github.com/jorgerojas26/lazysql.git
 <img width="1860" height="966" alt="image" src="https://github.com/user-attachments/assets/d3b91def-4965-43b1-8bf1-807542db18e4" />
 
 ## Man Page
-Once you run the Makefile you can view the man page with
+You can view my manual with:
 ```bash
 man ef
 ```
 <img width="1433" height="789" alt="image" src="https://github.com/user-attachments/assets/6ccef9f8-e659-4a0e-9294-63a603342374" />
+
 
 <img width="1418" height="135" alt="image" src="https://github.com/user-attachments/assets/29d13653-6c29-44c0-849f-3e0158a11d0d" />
 
