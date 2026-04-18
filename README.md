@@ -62,6 +62,8 @@ Once you run the Makefile you can view the man page with
 ```bash
 man ef
 ```
+<img width="1433" height="789" alt="image" src="https://github.com/user-attachments/assets/6ccef9f8-e659-4a0e-9294-63a603342374" />
+
 <img width="1418" height="135" alt="image" src="https://github.com/user-attachments/assets/29d13653-6c29-44c0-849f-3e0158a11d0d" />
 
 ## Refresh DB with crontab
