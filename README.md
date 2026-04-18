@@ -1,13 +1,9 @@
 # EbayFind
 
-***First and foremost, clone the repository***
+***First and foremost, clone the repository and install the dependencies***
 ```bash
 git clone https://github.com/KevinN2025/EbayFind.git
 cd EbayFind
-```
-
-***Install the dependencies via the Makefile***
-```bash
 sudo make install
 ```
 
